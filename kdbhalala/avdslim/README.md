@@ -4,5 +4,5 @@
 - managed by GitHub Action: https://github.com/jgehrcke/github-repo-stats
 - workflow that created this README: `GitHub Repo Stats`
 
-**Latest report PDF**: [report.pdf](https://github.com/kdbhalala/avdslim/raw/github-repo-stats/kdbhalala/avdslim/latest-report/report.pdf)
+**Latest report PDF**: [GitHub-rendered](https://github.com/kdbhalala/avdslim/blob/github-repo-stats/kdbhalala/avdslim/latest-report/report.pdf), [raw](https://github.com/kdbhalala/avdslim/raw/github-repo-stats/kdbhalala/avdslim/latest-report/report.pdf)
 
