@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v1.0.15 — 2026-09-23
 
 ### Added
 - **The Android Studio shim updates itself.** After you upgrade avdslim, the next avdslim command rewrites an outdated shim script in place, keeping its `--ram`; the real emulator binary is never touched. No more manual `avdslim install-shim` after upgrades.

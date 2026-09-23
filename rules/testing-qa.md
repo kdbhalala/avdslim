@@ -3,7 +3,7 @@
 ## Commands (all verified in `Makefile` / `release.yml`)
 
 - `go build ./...` / `make build` → `bin/avdslim` (`-s -w` ldflags, version
-  injected via `-X main.version`; `VERSION=1.0.14` in `Makefile` — bump together
+  injected via `-X main.version`; `VERSION=1.0.15` in `Makefile` — bump together
   with the `version` var in `cmd/avdslim/main.go` and `install.sh`).
 - `go vet ./...` — run before any PR; no lint config exists.
 - `go test ./...` / `make test` — all against the fake bash `adb` in
