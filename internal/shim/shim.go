@@ -4,7 +4,9 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"runtime"
+	"strconv"
 	"strings"
 
 	"github.com/kdbhalala/avdslim/internal/config"
@@ -79,6 +81,33 @@ func IsShimOutdated() bool {
 	script := string(data)
 	return !strings.Contains(script, "DEFAULTS_FILE=") || !strings.Contains(script, "avdslim_flag") ||
 		(os.Getenv("ANDROID_AVD_HOME") != "" && !strings.Contains(script, "ANDROID_AVD_HOME"))
+}
+
+// RefreshIfOutdated rewrites an installed but outdated shim script with the
+// current one, keeping its --ram. It only touches our script, never
+// emulator.real, so it is safe to run after every avdslim upgrade.
+func RefreshIfOutdated() (bool, error) {
+	if installed, _ := IsShimInstalled(); !installed || !IsShimOutdated() {
+		return false, nil
+	}
+	emuPath, realPath, err := GetEmulatorBinaryPaths()
+	if err != nil {
+		return false, err
+	}
+	data, err := os.ReadFile(emuPath)
+	if err != nil {
+		return false, err
+	}
+	ram := 1536
+	if m := regexp.MustCompile(`(?m)^RAM=(\d+)`).FindSubmatch(data); m != nil {
+		ram, _ = strconv.Atoi(string(m[1]))
+	} else if m := regexp.MustCompile(`"-memory" "?(\d+)`).FindSubmatch(data); m != nil {
+		ram, _ = strconv.Atoi(string(m[1])) // <= 1.0.5 shims baked it into the args
+	}
+	if err := writeShimScript(emuPath, realPath, ram); err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 // hasShimHeader checks only the first bytes; the real emulator binary is large.

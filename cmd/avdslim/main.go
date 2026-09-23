@@ -36,6 +36,16 @@ func main() {
 	subArgs := withDefaults(cmd, os.Args[2:])
 	client := adb.NewClient()
 
+	// After an avdslim upgrade, bring an installed Studio shim up to date
+	// (our script only; the real emulator binary is untouched).
+	if !map[string]bool{"help": true, "-h": true, "--help": true, "version": true, "-v": true, "--version": true}[cmd] {
+		if refreshed, err := shim.RefreshIfOutdated(); err != nil {
+			fmt.Fprintf(os.Stderr, "⚠️  Could not update the Android Studio shim (%v); run `avdslim install-shim`\n", err)
+		} else if refreshed {
+			fmt.Println("✓ Updated the Android Studio shim to this avdslim version.")
+		}
+	}
+
 	switch cmd {
 	case "help", "-h", "--help":
 		printUsage()

@@ -130,6 +130,49 @@ func TestIsShimOutdated(t *testing.T) {
 	}
 }
 
+// After an avdslim upgrade, an outdated shim is rewritten in place: same
+// --ram, same emulator.real, current script.
+func TestRefreshOutdatedShim(t *testing.T) {
+	dir := fakeSdk(t, "REAL-EMULATOR-v1")
+	emu, real := filepath.Join(dir, "emulator"), filepath.Join(dir, "emulator.real")
+	if err := InstallShim(2048); err != nil {
+		t.Fatal(err)
+	}
+	// Turn it into a pre-1.0.13 shim (no feature markers).
+	writeFile(t, emu, strings.ReplaceAll(readFile(t, emu), "avdslim_flag", "old_flag"))
+	if !IsShimOutdated() {
+		t.Fatal("setup: shim should be outdated")
+	}
+
+	refreshed, err := RefreshIfOutdated()
+	if err != nil || !refreshed {
+		t.Fatalf("RefreshIfOutdated = %v, %v; want true, nil", refreshed, err)
+	}
+	if IsShimOutdated() {
+		t.Error("still outdated after refresh")
+	}
+	if !strings.Contains(readFile(t, emu), "RAM=2048") {
+		t.Error("--ram 2048 from the old shim was not kept")
+	}
+	if readFile(t, real) != "REAL-EMULATOR-v1" {
+		t.Error("emulator.real changed")
+	}
+
+	if refreshed, _ := RefreshIfOutdated(); refreshed {
+		t.Error("refreshed a current shim again")
+	}
+}
+
+func TestRefreshLeavesNoShimAlone(t *testing.T) {
+	dir := fakeSdk(t, "REAL-EMULATOR-v1")
+	if refreshed, err := RefreshIfOutdated(); refreshed || err != nil {
+		t.Fatalf("RefreshIfOutdated with no shim = %v, %v", refreshed, err)
+	}
+	if got := readFile(t, filepath.Join(dir, "emulator")); got != "REAL-EMULATOR-v1" {
+		t.Errorf("emulator changed to %q", got)
+	}
+}
+
 func TestUninstallWithoutShim(t *testing.T) {
 	dir := fakeSdk(t, "REAL-EMULATOR-v1")
 	if err := UninstallShim(); err == nil {

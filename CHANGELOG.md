@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+### Added
+- **The Android Studio shim updates itself.** After you upgrade avdslim, the next avdslim command rewrites an outdated shim script in place, keeping its `--ram`; the real emulator binary is never touched. No more manual `avdslim install-shim` after upgrades.
+
 ### Fixed
 - **A stopped emulator could borrow a running neighbour's PID.** With two emulators up, `list`/`measure` could show the wrong one's memory and `stop`/`restart`/`bake` could refuse to continue. PIDs are now matched on the exact `-port`.
 - **Crash-looping guests are detected.** An AVD left by avdslim ≤ 1.0.8 in the Android 16 Bluetooth boot loop reports `boot_completed=1` while its package manager is gone. `doctor` now flags it and `on` points at `avdslim repair`.

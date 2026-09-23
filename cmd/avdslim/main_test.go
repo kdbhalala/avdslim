@@ -528,6 +528,38 @@ func TestCrashLoopingGuestPointsAtRepair(t *testing.T) {
 	mustContain(t, out, "avdslim repair")
 }
 
+// Upgrading avdslim updates an old shim on the next run of any command.
+func TestAnyCommandRefreshesOutdatedShim(t *testing.T) {
+	d := newDevice(t, false)
+	sdk := t.TempDir()
+	emuDir := filepath.Join(sdk, "emulator")
+	if err := os.MkdirAll(emuDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	// A pre-1.0.13 shim: header and RAM=, but no feature markers.
+	old := "#!/bin/bash\n# avdslim emulator shim — old\nDEFAULTS_FILE=x\nRAM=2048\nexec \"$DIR/emulator.real\" \"$@\"\n"
+	if err := os.WriteFile(filepath.Join(emuDir, "emulator"), []byte(old), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(emuDir, "emulator.real"), []byte("REAL"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	d.env = append(d.env, "ANDROID_HOME="+sdk)
+
+	out, _ := d.run("list")
+	mustContain(t, out, "Updated the Android Studio shim")
+	shimNow, _ := os.ReadFile(filepath.Join(emuDir, "emulator"))
+	mustContain(t, string(shimNow), "avdslim_flag", "RAM=2048")
+
+	out, _ = d.run("list")
+	if strings.Contains(out, "Updated the Android Studio shim") {
+		t.Error("refreshed an up-to-date shim again")
+	}
+	if out, _ := d.run("version"); strings.Contains(out, "shim") {
+		t.Errorf("version touched the shim:\n%s", out)
+	}
+}
+
 func TestRepair(t *testing.T) {
 	d := newDevice(t, true)
 	out, ok := d.run("repair")
