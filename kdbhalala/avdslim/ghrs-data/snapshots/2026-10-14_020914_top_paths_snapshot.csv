@@ -1,0 +1,11 @@
+url_path,views_total,views_unique
+/kdbhalala/avdslim,527,335
+/kdbhalala/avdslim/issues,32,22
+/kdbhalala/avdslim/releases/tag/v1.0.15,16,13
+/kdbhalala/avdslim/releases,13,11
+/kdbhalala/avdslim/issues/1,8,5
+/kdbhalala/avdslim/pulls,7,2
+/kdbhalala/avdslim/tree/main/Formula,6,5
+/kdbhalala/avdslim/blob/main/.claude/settings.json,4,4
+/kdbhalala/avdslim/blob/main/Formula/avdslim.rb,4,4
+/kdbhalala/avdslim/blob/main/cmd/avdslim/main.go,4,4
