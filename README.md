@@ -153,7 +153,19 @@ avdslim install-shim
 * **Zero workflow changes**: Android Studio launches automatically stay slimmed (1536 MB, `-lowram`, Metal GPU).
 * **Safe & reversible anytime**: `avdslim uninstall-shim` restores the original SDK binary instantly.
 * **After an emulator update in Android Studio**, the SDK Manager replaces the shim and launches go back to stock. `avdslim doctor` and `avdslim watch` warn about it; run `avdslim install-shim` again. An update can also invalidate the golden snapshot, so re-run `avdslim bake` if boots are slow again.
-* **Not supported on Windows**: Android Studio runs `emulator.exe` directly, so a script wrapper can't replace it. Use `avdslim start` and `avdslim tune-avd` instead.
+* **Not supported on Windows**: Android Studio runs `emulator.exe` directly, so a script wrapper can't replace it. Use `avdslim start` and `avdslim tune-avd` instead, or one of the options below.
+
+### VS Code / Flutter (any OS, no shim)
+* **Easiest**: run `avdslim start <avd>` first, then press Run. Flutter uses the emulator that is already running.
+* **Pick it from VS Code's device list**: add a custom emulator to your VS Code `settings.json` (Dart-Code extension) that launches through avdslim:
+  ```json
+  "dart.flutterCustomEmulators": [
+    { "id": "avdslim-medium", "name": "Medium_Phone (avdslim)", "executable": "avdslim", "args": ["start", "Medium_Phone"] }
+  ]
+  ```
+* `avdslim tune-avd` alone also helps IDE launches (RAM size and GPU live in the AVD's `config.ini`), but it turns off quick boot, so without `avdslim start` or the shim every launch is a cold boot and skips the Golden Snapshot.
+
+> **Windows status: community-tested.** The Windows builds are not tested on real hardware by the maintainer. `list`/`measure` don't show host memory on Windows yet. Reports in [issue #1](https://github.com/kdbhalala/avdslim/issues/1) are welcome.
 
 ---
 

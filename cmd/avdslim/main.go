@@ -352,14 +352,6 @@ func handleOn(client *adb.Client, args []string) {
 		fmt.Printf("   Preserving requested package(s): %s\n", strings.Join(keepPackages, ", "))
 	}
 
-	hostPid := host.FindHostPidForSerial(serial)
-	beforeFootprint := 0
-	beforeRss := 0
-	if hostPid > 0 {
-		beforeFootprint = host.GetHostFootprintMb(hostPid)
-		beforeRss = host.GetHostRssMb(hostPid)
-	}
-
 	fmt.Println("1. Disabling non-essential background daemons:")
 	count, err := client.Slim(serial, aggressive, keepPackages, skip)
 	if err != nil {
@@ -385,29 +377,14 @@ func handleOn(client *adb.Client, args []string) {
 	fmt.Println("3. Purged cached processes and trimmed memory.")
 	fmt.Println()
 
-	time.Sleep(1 * time.Second)
-
-	afterFootprint := 0
-	afterRss := 0
-	if hostPid > 0 {
-		afterFootprint = host.GetHostFootprintMb(hostPid)
-		afterRss = host.GetHostRssMb(hostPid)
-	}
-
+	// ponytail: no host before/after here. Disabling packages frees guest RAM,
+	// but the emulator keeps the host pages it already has, so the number
+	// stayed flat or rose and read as failure (issue #4).
 	fmt.Println("══════════════════════════════════════════════════════════════")
 	fmt.Printf("🎉 Slimming complete for %s!\n", serial)
-	if beforeFootprint > 0 && afterFootprint > 0 {
-		diffFp := beforeFootprint - afterFootprint
-		if diffFp < 0 {
-			diffFp = 0
-		}
-		diffRss := beforeRss - afterRss
-		if diffRss < 0 {
-			diffRss = 0
-		}
-		fmt.Printf("🖥️  Activity Monitor Memory: %dMB -> %dMB (Reclaimed: %dMB)\n", beforeFootprint, afterFootprint, diffFp)
-		fmt.Printf("🖥️  Host Resident RAM (RSS): %dMB -> %dMB (Reclaimed: %dMB)\n", beforeRss, afterRss, diffRss)
-	}
+	fmt.Println("ℹ️  This frees RAM inside Android and makes it more responsive. Host RAM")
+	fmt.Println("   (Activity Monitor / Task Manager) won't drop now: that saving comes from")
+	fmt.Println("   the launch settings (`avdslim tune-avd` + `avdslim start`). Check it with `avdslim measure`.")
 	fmt.Printf("ℹ️  To restore default stock services anytime:\n   avdslim off %s\n\n", serial)
 }
 
