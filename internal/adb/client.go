@@ -471,7 +471,17 @@ func (c *Client) Repair(serial string) ([]string, error) {
 			fixed = append(fixed, p)
 		}
 	}
+	// Old crashes would make CrashLooping report the loop again while the framework restarts.
+	c.Exec("-s", serial, "logcat", "-b", "crash", "-c")
 	return fixed, nil
+}
+
+// CrashLooping reports the Android 16+ system_server crash loop caused by a
+// disabled Bluetooth APK (see bloat.BootCritical). Repair fixes it. While it
+// loops, sys.boot_completed never becomes 1.
+func (c *Client) CrashLooping(serial string) bool {
+	out, _ := c.Exec("-s", serial, "logcat", "-d", "-b", "crash")
+	return strings.Contains(out, "FEATURE_BLUETOOTH")
 }
 
 var featureAliases = map[string][]string{

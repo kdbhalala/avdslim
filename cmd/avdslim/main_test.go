@@ -401,7 +401,7 @@ while [ $# -gt 0 ]; do
 done
 echo "$avd" > "$D/avd_emulator-$port"
 printf 'List of devices attached\nemulator-%s\tdevice\n' "$port" > "$D/devices"
-echo 1 > "$D/prop_sys.boot_completed"
+[ -f "$D/crash" ] || echo 1 > "$D/prop_sys.boot_completed" # crash: Bluetooth boot loop
 sleep 5
 `
 
@@ -442,6 +442,18 @@ func TestStartReportsEmulatorCrash(t *testing.T) {
 		t.Fatalf("start succeeded although the emulator crashed:\n%s", out)
 	}
 	mustContain(t, out, "exited during startup", "PANIC: Missing emulator engine")
+}
+
+func TestStartRepairsBluetoothCrashLoop(t *testing.T) {
+	d := newDevice(t, false)
+	d.withEmulator("Avdslim_Test_Pixel")
+	d.write("crash", "FATAL: ... hasSystemFeature(FEATURE_BLUETOOTH) == true\n")
+
+	out, ok := d.run("start", "Avdslim_Test_Pixel")
+	if !ok {
+		t.Fatalf("start failed:\n%s", out)
+	}
+	mustContain(t, out, "crash-looping", "Repairing", "Boot complete", "Slimming complete")
 }
 
 func TestStartRejectsUnknownAvd(t *testing.T) {

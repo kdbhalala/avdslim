@@ -988,7 +988,7 @@ func handleLaunch(client *adb.Client, args []string) {
 
 	if doSlim {
 		fmt.Println("⏳ Waiting for emulator to finish booting...")
-		err := emu.waitForBoot(client, serial, 60)
+		err := emu.bootOrRepair(client, serial, 60)
 		switch {
 		case err == nil:
 			if hasGolden && !forceCold {
@@ -997,7 +997,7 @@ func handleLaunch(client *adb.Client, args []string) {
 				fmt.Println("✓ Boot complete! Applying avdslim optimizations...")
 			}
 			handleOn(client, append(slimArgs, serial))
-		case errors.Is(err, errEmulatorExited):
+		case errors.Is(err, errEmulatorExited), errors.Is(err, errCrashLoop):
 			fmt.Printf("❌ %v\n", err)
 			os.Exit(1)
 		default:
@@ -1064,10 +1064,39 @@ func (e *runningEmulator) waitForBoot(client *adb.Client, serial string, tries i
 	}); err != nil {
 		return err
 	}
-	return poll(tries, func() bool {
+	n, looping := 0, false
+	err := poll(tries, func() bool {
+		if n++; n%10 == 1 && client.CrashLooping(serial) {
+			looping = true
+			return true
+		}
 		res, _ := client.Exec("-s", serial, "shell", "getprop", "sys.boot_completed")
 		return strings.TrimSpace(res) == "1"
 	})
+	if looping {
+		return errCrashLoop
+	}
+	return err
+}
+
+var errCrashLoop = errors.New("Android is crash-looping: its Bluetooth app was disabled by avdslim <= 1.0.8")
+
+// bootOrRepair is waitForBoot that, on the Bluetooth crash loop, runs
+// `avdslim repair` itself and waits once more instead of timing out.
+func (e *runningEmulator) bootOrRepair(client *adb.Client, serial string, tries int) error {
+	err := e.waitForBoot(client, serial, tries)
+	if !errors.Is(err, errCrashLoop) {
+		return err
+	}
+	fmt.Printf("🩺 %v. Repairing...\n", err)
+	fixed, rerr := client.Repair(serial)
+	if rerr != nil {
+		return fmt.Errorf("%w, and repair failed: %v", errCrashLoop, rerr)
+	}
+	for _, p := range fixed {
+		fmt.Printf("   ✓ Re-enabled: %s\n", p)
+	}
+	return e.waitForBoot(client, serial, tries)
 }
 
 // waitStopped waits up to 10 s for serial's emulator process to go away.
@@ -1591,7 +1620,7 @@ func handleBake(client *adb.Client, args []string) {
 	}
 
 	fmt.Println("⏳ Waiting for boot completion...")
-	if err := emu.waitForBoot(client, targetSerial, 90); err != nil {
+	if err := emu.bootOrRepair(client, targetSerial, 90); err != nil {
 		abort(fmt.Sprintf("Boot failed: %v.", err))
 	}
 

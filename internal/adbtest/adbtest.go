@@ -50,6 +50,12 @@ if [ "$1" = "-s" ] && [ "$3" = "root" ]; then
   [ -f "$D/root_denied" ] && echo "adbd cannot run as root in production builds"
   exit 0
 fi
+if [ "$1" = "-s" ] && [ "$3" = "logcat" ]; then
+  [ "$4" = "-d" ] && cat "$D/crash" 2>/dev/null
+  # Clearing the crash log follows a repair: the framework then finishes booting.
+  [ "$6" = "-c" ] && [ -f "$D/crash" ] && { rm -f "$D/crash"; echo 1 > "$D/prop_sys.boot_completed"; }
+  exit 0
+fi
 if [ "$1" = "-s" ] && [ "$3" = "get-state" ]; then
   grep -q "^$2[[:space:]]*device" "$D/devices" 2>/dev/null && { echo device; exit 0; }
   echo "error: device '$2' not found" >&2
