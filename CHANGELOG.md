@@ -1,5 +1,14 @@
 # Changelog
 
+## v1.0.16 — 2026-10-15
+
+### Fixed
+- **`start`/`bake` now repair the Android 16 Bluetooth boot loop.** An AVD left by avdslim ≤ 1.0.8 kept crashing `system_server`. Before, this looked like a slow boot and ended in a timeout after minutes. Now the crash is detected within seconds, `repair` runs on its own, and booting continues.
+- **`on` no longer reports misleading host RAM** (#4). Disabling packages frees RAM inside Android; the emulator keeps the host memory it already has, so the before/after host number stayed flat or rose. `on` now points to `tune-avd` + `start` and `measure` instead.
+
+### Docs
+- README: launching AVDs from VS Code / Flutter through `avdslim start` (`dart.flutterCustomEmulators`), with no shim and on any OS. Windows status is marked community-tested.
+
 ## v1.0.15 — 2026-09-23
 
 ### Added
