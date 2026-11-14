@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strconv"
 	"strings"
@@ -110,7 +111,7 @@ var flagCommands = map[string]bool{
 // knownDefaultFlags are the flags accepted in the defaults file.
 var knownDefaultFlags = []string{
 	"--ram=", "--heap=", "--gpu=", "--keep=", "--skip=",
-	"--aggressive", "--headless", "--no-lowram", "--no-slim",
+	"--aggressive", "--headless", "--no-lowram", "--no-slim", "--low-cpu",
 	"--no-anim", "--no-animations", "--anim", "--animations",
 }
 
@@ -186,9 +187,11 @@ Commands:
                        Options: --api=<level>, --device=<id> (default: pixel_5), --ram=<MB>
   start, run, launch [avd] Launch AVD with low-memory host flags & auto-slim upon boot
                        Options: --no-slim, --no-lowram, --headless, --cold, --ram=<MB> (default: 1536)
+                                --low-cpu (2 vCPUs, 30 Hz display, GPU drawing via ANGLE on Apple silicon)
   stop, kill [device]  Gracefully shut down emulator (Options: --snap, -f)
   bake [avd_name]      Create local Golden Snapshot (pruned & slimmed) for ~1.5s instant boots
-                       Options: --ram=<MB> (default: 1536), --aggressive, --skip=<groups>, --headless, --live
+                       Options: --ram=<MB> (default: 1536), --aggressive, --skip=<groups>, --headless, --live,
+                                --low-cpu (bake with it to restore with it: snapshots don't cross)
   snapshot, snap       Capture running emulator (with pre-installed apps & test logins)
                        into Golden Snapshot for instant <1.5s restores
   repair [device]      Unstick an AVD hung on a black screen after slimming (needs adb root)
@@ -910,6 +913,7 @@ func handleLaunch(client *adb.Client, args []string) {
 
 	doSlim := true
 	lowRam := true
+	lowCPU := false
 	headless := false
 	forceCold := false
 	ramMb := 1536
@@ -926,6 +930,8 @@ func handleLaunch(client *adb.Client, args []string) {
 			doSlim = true
 		} else if a == "--no-lowram" {
 			lowRam = false
+		} else if a == "--low-cpu" {
+			lowCPU = true
 		} else if a == "--headless" || a == "--no-window" {
 			headless = true
 		} else if a == "--cold" || a == "--no-snapshot" {
@@ -953,6 +959,9 @@ func handleLaunch(client *adb.Client, args []string) {
 		"-gpu", gpuMode,
 	}
 	emuArgs = append(emuArgs, hostFeatureArgs(avdName)...)
+	if lowCPU {
+		emuArgs = append(emuArgs, lowCPUArgs(gpuMode, runtime.GOOS, runtime.GOARCH)...)
+	}
 
 	if lowRam {
 		emuArgs = append(emuArgs, "-lowram")
@@ -1287,6 +1296,19 @@ func hostFeatureArgs(avdName string) []string {
 	return args
 }
 
+// lowCPUArgs caps the emulator's CPU use: 2 vCPUs and a 30 Hz guest display.
+// With -gpu host on Apple silicon it also draws the guest through ANGLE on
+// Vulkan (MoltenVK, so Metal) instead of the deprecated macOS OpenGL path;
+// VulkanSnapshots lets quickboot save that state, which it otherwise refuses.
+// GuestAngle raises guest RAM to 2.5 GB on a phone (4 GB on a tablet).
+func lowCPUArgs(gpuMode, goos, goarch string) []string {
+	args := []string{"-cores", "2", "-vsync-rate", "30"}
+	if gpuMode == "host" && goos == "darwin" && goarch == "arm64" {
+		args = append(args, "-feature", "GuestAngle", "-feature", "VulkanSnapshots")
+	}
+	return args
+}
+
 // freeEmulatorPort returns the console port a new emulator should take, so boot
 // waits and slimming target it and never another running AVD.
 func freeEmulatorPort(client *adb.Client) int {
@@ -1513,6 +1535,7 @@ func handleBake(client *adb.Client, args []string) {
 	ramMb := 1536
 	aggressive := false
 	headless := false
+	lowCPU := false
 	var keepPackages []string
 	skip := newDefaultSkip()
 
@@ -1525,6 +1548,8 @@ func handleBake(client *adb.Client, args []string) {
 			}
 		} else if a == "--aggressive" {
 			aggressive = true
+		} else if a == "--low-cpu" {
+			lowCPU = true
 		} else if a == "--headless" || a == "--no-window" {
 			headless = true
 		} else if a == "--no-anim" || a == "--no-animations" {
@@ -1591,6 +1616,9 @@ func handleBake(client *adb.Client, args []string) {
 		"-no-snapshot-load",
 	}
 	emuArgs = append(emuArgs, hostFeatureArgs(targetAvd)...)
+	if lowCPU {
+		emuArgs = append(emuArgs, lowCPUArgs(gpuMode, runtime.GOOS, runtime.GOARCH)...)
+	}
 	port := freeEmulatorPort(client)
 	targetSerial := "emulator-" + strconv.Itoa(port)
 	emuArgs = append(emuArgs, "-port", strconv.Itoa(port))

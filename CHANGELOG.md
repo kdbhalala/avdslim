@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+### Added
+- **`start --low-cpu` / `bake --low-cpu`** cap the emulator's CPU: 2 vCPUs, a 30 Hz guest display and, on Apple silicon with `-gpu host`, guest drawing through ANGLE (`GuestAngle` + `VulkanSnapshots`). Pixel 8 API 36, headless, scrolling while the screen is read: 1.5 → 1.0 cores, host memory about the same. Also accepted in the defaults file.
+
 ## v1.0.16 — 2026-10-15
 
 ### Fixed
