@@ -12,6 +12,15 @@ import (
 func FindHostPidForSerial(serial string) int {
 	portStr := strings.TrimPrefix(serial, "emulator-")
 
+	// Windows has no lsof or ps; netstat finds the listener on the console port.
+	if runtime.GOOS == "windows" {
+		out, err := exec.Command("netstat", "-ano", "-p", "TCP").CombinedOutput()
+		if err != nil {
+			return 0
+		}
+		return parseNetstatListenerPid(string(out), portStr)
+	}
+
 	// 1. Try lsof on console port (e.g. 5554) - fastest and most precise
 	if portStr != "" {
 		cmd := exec.Command("lsof", "-i", ":"+portStr, "-sTCP:LISTEN", "-t")
@@ -74,6 +83,13 @@ func portArg(fields []string) string {
 }
 
 func GetHostRssMb(pid int) int {
+	if runtime.GOOS == "windows" {
+		out, err := exec.Command("tasklist", "/FI", "PID eq "+strconv.Itoa(pid), "/FO", "CSV", "/NH").CombinedOutput()
+		if err != nil {
+			return 0
+		}
+		return parseTasklistKb(string(out)) / 1024
+	}
 	if runtime.GOOS == "linux" {
 		if data, err := os.ReadFile(fmt.Sprintf("/proc/%d/status", pid)); err == nil {
 			for _, line := range strings.Split(string(data), "\n") {
