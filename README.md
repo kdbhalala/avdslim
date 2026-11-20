@@ -400,6 +400,25 @@ avdslim run Pixel_10_Pro --ram=1536
 avdslim start 1 --no-slim
 ```
 
+#### Lower CPU (`--low-cpu`)
+
+`-gpu host` already takes the emulator off software rendering, which is the biggest CPU cost. `--low-cpu` trims the rest: 2 vCPUs (`-cores 2`), a 30 Hz guest display (`-vsync-rate 30`) and, on Apple silicon, guest drawing through ANGLE on Vulkan/Metal (`-feature GuestAngle`) instead of macOS's deprecated OpenGL. `VulkanSnapshots` is turned on with it, or quickboot refuses to save that state.
+
+```bash
+avdslim start 1 --low-cpu
+avdslim bake 1 --low-cpu   # bake with it too: a snapshot saved without it does not restore with it
+```
+
+Pixel 8, API 36, headless, on an M5 Pro Mac: Settings scrolling while two host-side readers pull the screen for 120 s (launch flags only; no in-guest slimming in any row):
+
+| Launch flags | Emulator CPU (cores) | Activity Monitor |
+| :--- | ---: | ---: |
+| Stock (`-gpu auto`, no window) | 7.6 | 5.5 GB |
+| `avdslim start` flags | 1.5 | 3.7 GB |
+| `avdslim start --low-cpu` flags | **1.0** | 3.8 GB |
+
+Trade-offs: the guest renders 30 frames a second, so leave it off for animation work and screen recordings. GuestAngle raises the guest's RAM floor (2.5 GB phone, 4 GB tablet), though with `-lowram` the host footprint stayed within about 0.1 GB in the run above.
+
 ---
 
 ### 13. Graceful Stop with Snapshot Prompt (`stop`, `kill`)

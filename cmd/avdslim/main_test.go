@@ -432,6 +432,49 @@ func TestStartLaunchesAndSlims(t *testing.T) {
 	mustContain(t, d.read("emulator_calls"), "-avd Avdslim_Test_Pixel ", "-lowram", "-memory 1536", "-no-snapshot-load")
 }
 
+func TestStartLowCPU(t *testing.T) {
+	d := newDevice(t, false)
+	d.withEmulator("Avdslim_Test_Pixel")
+
+	out, ok := d.run("start", "Avdslim_Test_Pixel", "--low-cpu")
+	if !ok {
+		t.Fatalf("start --low-cpu failed:\n%s", out)
+	}
+	mustContain(t, d.read("emulator_calls"), "-cores 2", "-vsync-rate 30", "-lowram", "-memory 1536")
+}
+
+func TestStartWithoutLowCPU(t *testing.T) {
+	d := newDevice(t, false)
+	d.withEmulator("Avdslim_Test_Pixel")
+
+	if out, ok := d.run("start", "Avdslim_Test_Pixel"); !ok {
+		t.Fatalf("start failed:\n%s", out)
+	}
+	if calls := d.read("emulator_calls"); strings.Contains(calls, "-cores") || strings.Contains(calls, "GuestAngle") {
+		t.Errorf("plain start passed low-CPU flags: %s", calls)
+	}
+}
+
+func TestLowCPUArgs(t *testing.T) {
+	for _, tc := range []struct {
+		gpu, goos, goarch string
+		angle             bool
+	}{
+		{"host", "darwin", "arm64", true},
+		{"host", "darwin", "amd64", false},
+		{"host", "linux", "arm64", false},
+		{"swiftshader_indirect", "darwin", "arm64", false},
+	} {
+		got := strings.Join(lowCPUArgs(tc.gpu, tc.goos, tc.goarch), " ")
+		if !strings.HasPrefix(got, "-cores 2 -vsync-rate 30") {
+			t.Errorf("%v: %q lacks the CPU caps", tc, got)
+		}
+		if strings.Contains(got, "-feature GuestAngle -feature VulkanSnapshots") != tc.angle {
+			t.Errorf("%v: %q, want GuestAngle=%v", tc, got, tc.angle)
+		}
+	}
+}
+
 func TestStartReportsEmulatorCrash(t *testing.T) {
 	d := newDevice(t, false)
 	d.withEmulator("Avdslim_Test_Pixel")
@@ -498,6 +541,17 @@ func TestBakeReplacesSnapshot(t *testing.T) {
 	if _, err := os.Stat(filepath.Dir(marker) + ".avdslim-old"); err == nil {
 		t.Error("previous snapshot copy left behind")
 	}
+}
+
+// A snapshot saved without --low-cpu does not restore with it, so bake takes it too.
+func TestBakeLowCPU(t *testing.T) {
+	d := newDevice(t, false)
+	d.withEmulator("Avdslim_Test_Pixel")
+
+	if out, ok := d.run("bake", "Avdslim_Test_Pixel", "--low-cpu"); !ok {
+		t.Fatalf("bake --low-cpu failed:\n%s", out)
+	}
+	mustContain(t, d.read("emulator_calls"), "-cores 2", "-vsync-rate 30")
 }
 
 // A failed bake must not cost the user the snapshot they already had.
