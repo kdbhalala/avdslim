@@ -8,77 +8,50 @@ import (
 	"strings"
 )
 
+// GetInstalledAvds lists the AVDs that have a config.ini, named as the emulator
+// names them (see listAvds).
 func GetInstalledAvds() []map[string]string {
-	avdBase := GetAvdBaseDir()
-
 	var list []map[string]string
-	entries, err := os.ReadDir(avdBase)
-	if err != nil {
-		return list
-	}
-
-	for _, e := range entries {
-		if e.IsDir() && strings.HasSuffix(e.Name(), ".avd") {
-			cfgPath := filepath.Join(avdBase, e.Name(), "config.ini")
-			data, err := os.ReadFile(cfgPath)
-			if err != nil {
-				continue
-			}
-			m := map[string]string{
-				"name": strings.TrimSuffix(e.Name(), ".avd"),
-			}
-			for _, line := range strings.Split(string(data), "\n") {
-				idx := strings.Index(line, "=")
-				if idx > 0 {
-					k := strings.TrimSpace(line[:idx])
-					v := strings.TrimSpace(line[idx+1:])
-					m[k] = v
-				}
-			}
-			list = append(list, m)
+	for _, a := range listAvds(GetAvdBaseDir()) {
+		kv, err := readConfigIni(filepath.Join(a.dir, "config.ini"))
+		if err != nil {
+			continue
 		}
+		kv["name"] = a.name
+		list = append(list, kv)
 	}
 	return list
 }
 
 func TuneAvd(targetAvd string, ramMb, heapMb int, gpuMode string) error {
-	avdBase := GetAvdBaseDir()
+	avdHome := GetAvdBaseDir()
+	installed := GetInstalledAvds()
 
-	var configFiles []string
-	filepath.Walk(avdBase, func(path string, info os.FileInfo, err error) error {
-		if err == nil && info != nil && info.Name() == "config.ini" {
-			configFiles = append(configFiles, path)
-		}
-		return nil
-	})
-
-	if len(configFiles) == 0 {
-		return fmt.Errorf("no AVD configurations found in %s", avdBase)
+	if len(installed) == 0 {
+		return fmt.Errorf("no AVD configurations found in %s", avdHome)
 	}
 
-	var fileToTune string
+	var avdName string
 	if targetAvd != "" {
-		for _, f := range configFiles {
-			avdName := strings.TrimSuffix(filepath.Base(filepath.Dir(f)), ".avd")
-			if strings.EqualFold(avdName, targetAvd) {
-				fileToTune = f
-				break
-			}
+		name, _, ok := ResolveAvd(targetAvd)
+		if !ok {
+			return fmt.Errorf("AVD %q not found in %s", targetAvd, avdHome)
 		}
-		if fileToTune == "" {
-			return fmt.Errorf("AVD %q not found in ~/.android/avd", targetAvd)
-		}
-	} else if len(configFiles) == 1 {
-		fileToTune = configFiles[0]
+		avdName = name
+	} else if len(installed) == 1 {
+		avdName = installed[0]["name"]
 	} else {
 		fmt.Println("Found multiple AVDs. Please specify one:")
-		for _, f := range configFiles {
-			fmt.Printf("  • %s\n", strings.TrimSuffix(filepath.Base(filepath.Dir(f)), ".avd"))
+		for _, a := range installed {
+			fmt.Printf("  • %s\n", a["name"])
 		}
 		return fmt.Errorf("please specify AVD name")
 	}
 
-	avdName := strings.TrimSuffix(filepath.Base(filepath.Dir(fileToTune)), ".avd")
+	fileToTune, err := AvdConfigPath(avdName)
+	if err != nil {
+		return err
+	}
 	fmt.Printf("⚙️  Tuning config.ini for %q (RAM: %dMB, Heap: %dMB)...\n", avdName, ramMb, heapMb)
 
 	data, err := os.ReadFile(fileToTune)
@@ -171,8 +144,12 @@ func onOff(on bool) string {
 	return "disabled"
 }
 
-// AvdDir is avdName's <name>.avd directory, honoring ANDROID_AVD_HOME.
+// AvdDir is the folder of avdName (an ini name or folder alias). An unknown
+// name maps to <AVD home>/<name>.avd, as before.
 func AvdDir(avdName string) string {
+	if _, dir, ok := ResolveAvd(avdName); ok {
+		return dir
+	}
 	return filepath.Join(GetAvdBaseDir(), avdName+".avd")
 }
 

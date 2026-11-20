@@ -266,7 +266,7 @@ func handleList(client *adb.Client) {
 	fmt.Println("💾 Installed AVD Configurations:")
 	avds := config.GetInstalledAvds()
 	if len(avds) == 0 {
-		fmt.Println("  (No AVDs found in ~/.android/avd)")
+		fmt.Printf("  (No AVDs found in %s)\n", config.GetAvdBaseDir())
 		fmt.Println()
 	} else {
 		for _, avd := range avds {
@@ -642,7 +642,7 @@ func resolveAvdForFeature(client *adb.Client, args []string) (string, error) {
 				return name, nil
 			}
 		}
-		return "", fmt.Errorf("AVD %q not found in ~/.android/avd", a)
+		return "", fmt.Errorf("AVD %q not found in %s", a, config.GetAvdBaseDir())
 	}
 
 	if running, err := client.GetRunningEmulators(); err == nil && len(running) == 1 {
@@ -700,7 +700,7 @@ func isDeviceSpecifier(client *adb.Client, running []adb.RunningEmulator, s stri
 
 func selectAvdInteractively(installed []map[string]string, promptTitle string) (string, error) {
 	if len(installed) == 0 {
-		return "", fmt.Errorf("no installed AVDs found in ~/.android/avd")
+		return "", fmt.Errorf("no installed AVDs found in %s", config.GetAvdBaseDir())
 	}
 	if len(installed) == 1 {
 		fmt.Printf("ℹ️  Auto-selecting only installed AVD: %q\n\n", installed[0]["name"])
@@ -945,7 +945,8 @@ func handleLaunch(client *adb.Client, args []string) {
 		}
 	}
 
-	canonical, ok := installedAvdName(installed, avdName)
+	// The emulator needs the ini name for -avd; a folder alias maps to it.
+	canonical, _, ok := config.ResolveAvd(avdName)
 	if !ok {
 		fmt.Printf("❌ AVD %q not found in %s. Run `avdslim list` to see installed AVDs.\n", avdName, config.GetAvdBaseDir())
 		os.Exit(1)
@@ -1117,17 +1118,6 @@ func waitStopped(serial string) bool {
 		}
 	}
 	return false
-}
-
-// installedAvdName returns the installed AVD's exact name, matching case-insensitively
-// (macOS users may type names in any case; the emulator on Linux needs the exact one).
-func installedAvdName(installed []map[string]string, name string) (string, bool) {
-	for _, avd := range installed {
-		if strings.EqualFold(avd["name"], name) {
-			return avd["name"], true
-		}
-	}
-	return "", false
 }
 
 // logTail returns the last 15 lines of the emulator log, indented.
