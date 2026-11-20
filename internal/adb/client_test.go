@@ -69,6 +69,38 @@ func TestSlimRestoreIsExactInverse(t *testing.T) {
 	}
 }
 
+// The guest's `ls` prints "No such file or directory" with the path in it when
+// the state file is missing; that text must not count as "slimmed".
+func TestGetRunningEmulatorsSlimmedFlag(t *testing.T) {
+	c, dir := newFake(t)
+	write(t, dir, "devices", "List of devices attached\nemulator-5554\tdevice\n")
+	for _, tc := range []struct {
+		name  string
+		state bool
+		want  bool
+	}{
+		{"no state file", false, false},
+		{"state file present", true, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			os.Remove(filepath.Join(dir, "state"))
+			if tc.state {
+				write(t, dir, "state", `{"disabled_packages":[]}`)
+			}
+			emus, err := c.GetRunningEmulators()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(emus) != 1 {
+				t.Fatalf("got %d emulators, want 1", len(emus))
+			}
+			if emus[0].IsSlimmed != tc.want {
+				t.Errorf("IsSlimmed = %v, want %v", emus[0].IsSlimmed, tc.want)
+			}
+		})
+	}
+}
+
 func write(t *testing.T, dir, name, content string) {
 	t.Helper()
 	if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0644); err != nil {

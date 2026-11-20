@@ -5,6 +5,9 @@
 ### Added
 - **`start --low-cpu` / `bake --low-cpu`** cap the emulator's CPU: 2 vCPUs, a 30 Hz guest display and, on Apple silicon with `-gpu host`, guest drawing through ANGLE (`GuestAngle` + `VulkanSnapshots`). Pixel 8 API 36, headless, scrolling while the screen is read: 1.5 → 1.0 cores, host memory about the same. Also accepted in the defaults file.
 
+### Fixed
+- **`watch` no longer skips every emulator, and `list` no longer shows SLIMMED for unslimmed ones.** The state-file check matched the file name inside adb's "No such file or directory" error (#9). It now tests for the file and matches the reply exactly.
+
 ## v1.0.16 — 2026-10-15
 
 ### Fixed

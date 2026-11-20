@@ -142,8 +142,10 @@ func (c *Client) GetRunningEmulators() ([]RunningEmulator, error) {
 			ver, _ := c.Exec("-s", serial, "shell", "getprop", "ro.build.version.release")
 			sdk, _ := c.Exec("-s", serial, "shell", "getprop", "ro.build.version.sdk")
 
-			stateExists, _ := c.Exec("-s", serial, "shell", "ls", StateFilePath)
-			isSlimmed := strings.Contains(stateExists, "avdslim_state.json")
+			// Exit codes are not reliable through adb, so match the exact reply:
+			// `ls` errors name the file, which a substring match would count as present.
+			stateExists, _ := c.Exec("-s", serial, "shell", "test", "-f", StateFilePath, "&&", "echo", "yes")
+			isSlimmed := strings.TrimSpace(stateExists) == "yes"
 
 			list = append(list, RunningEmulator{
 				Serial:         serial,
