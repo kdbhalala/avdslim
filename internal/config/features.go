@@ -91,24 +91,15 @@ func AvdConfigPath(avdName string) (string, error) {
 	if strings.TrimSpace(avdName) == "" {
 		return "", fmt.Errorf("AVD name required")
 	}
-	base := GetAvdBaseDir()
-	entries, err := os.ReadDir(base)
-	if err != nil {
-		return "", fmt.Errorf("cannot read %s: %w", base, err)
+	_, dir, ok := ResolveAvd(avdName)
+	if !ok {
+		return "", fmt.Errorf("AVD %q not found in %s", avdName, GetAvdBaseDir())
 	}
-	for _, e := range entries {
-		if !e.IsDir() || !strings.HasSuffix(e.Name(), ".avd") {
-			continue
-		}
-		if strings.EqualFold(strings.TrimSuffix(e.Name(), ".avd"), avdName) {
-			p := filepath.Join(base, e.Name(), "config.ini")
-			if _, err := os.Stat(p); err != nil {
-				return "", fmt.Errorf("AVD %q has no config.ini", avdName)
-			}
-			return p, nil
-		}
+	p := filepath.Join(dir, "config.ini")
+	if _, err := os.Stat(p); err != nil {
+		return "", fmt.Errorf("AVD %q has no config.ini", avdName)
 	}
-	return "", fmt.Errorf("AVD %q not found in %s", avdName, base)
+	return p, nil
 }
 
 // readConfigIni parses key=value lines; comments and ordering are not preserved.

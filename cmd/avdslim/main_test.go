@@ -512,6 +512,24 @@ func TestStartRejectsUnknownAvd(t *testing.T) {
 	}
 }
 
+// The emulator names an AVD by its .ini, which can differ from its folder.
+// `start` must pass the ini name to -avd, and accept the folder name too.
+func TestStartUsesIniNameForMismatchedFolder(t *testing.T) {
+	d := newDevice(t, false)
+	d.withEmulator("Medium_Phone") // folder Medium_Phone.avd, no .ini yet
+	avd := filepath.Join(d.home, "avd")
+	ini := "path=" + filepath.Join(avd, "Medium_Phone.avd") + "\n"
+	if err := os.WriteFile(filepath.Join(avd, "Medium_Phone_API_37.0.ini"), []byte(ini), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	out, ok := d.run("start", "Medium_Phone") // the folder name is an alias
+	if !ok {
+		t.Fatalf("start failed:\n%s", out)
+	}
+	mustContain(t, d.read("emulator_calls"), "-avd Medium_Phone_API_37.0 ", "-lowram")
+}
+
 // oldSnapshot gives Avdslim_Test_Pixel a previous Golden Snapshot and returns its marker path.
 func (d *device) oldSnapshot() string {
 	snap := filepath.Join(d.home, "avd", "Avdslim_Test_Pixel.avd", "snapshots", "avdslim_clean")

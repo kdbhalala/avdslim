@@ -43,11 +43,23 @@ func GetAndroidSdkDir() string {
 	return ""
 }
 
-// GetAvdBaseDir locates ~/.android/avd or $ANDROID_AVD_HOME across platforms.
+// GetAvdBaseDir is the AVD home, resolved as the emulator does: the first
+// existing of $ANDROID_AVD_HOME, $ANDROID_SDK_HOME/avd, $ANDROID_USER_HOME/avd,
+// else ~/.android/avd.
 func GetAvdBaseDir() string {
-	if env := os.Getenv("ANDROID_AVD_HOME"); env != "" {
-		if _, err := os.Stat(env); err == nil {
-			return env
+	var candidates []string
+	if v := os.Getenv("ANDROID_AVD_HOME"); v != "" {
+		candidates = append(candidates, v)
+	}
+	if v := os.Getenv("ANDROID_SDK_HOME"); v != "" {
+		candidates = append(candidates, filepath.Join(v, "avd"))
+	}
+	if v := os.Getenv("ANDROID_USER_HOME"); v != "" {
+		candidates = append(candidates, filepath.Join(v, "avd"))
+	}
+	for _, c := range candidates {
+		if info, err := os.Stat(c); err == nil && info.IsDir() {
+			return c
 		}
 	}
 	home, _ := os.UserHomeDir()
