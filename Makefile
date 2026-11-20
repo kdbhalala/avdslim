@@ -1,6 +1,6 @@
 BINARY_NAME=avdslim
 BUILD_DIR=bin
-VERSION=1.0.16
+VERSION=1.0.17
 LDFLAGS=-s -w -X main.version=$(VERSION)
 
 .PHONY: all build clean cross install test
