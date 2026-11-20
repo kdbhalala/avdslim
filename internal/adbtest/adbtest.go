@@ -78,7 +78,7 @@ case "$1 $2" in
   "pm disable-user") echo "Package $5 new state: disabled-user" ;;
   "getprop "*) cat "$D/prop_$2" 2>/dev/null ;;
   "cat "*) cat "$D/state" 2>/dev/null ;;
-  "ls "*) [ -f "$D/state" ] && echo "$2" ;;
+  "test -f") [ -f "$D/state" ] && echo yes ;;
   "rm -f") rm -f "$D/state" ;;
   "echo "*)
     [ -f "$D/readonly" ] && { echo "/system/bin/sh: can't create $4: Read-only file system"; exit 1; }
