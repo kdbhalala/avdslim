@@ -80,6 +80,7 @@ func IsShimOutdated() bool {
 	}
 	script := string(data)
 	return !strings.Contains(script, "DEFAULTS_FILE=") || !strings.Contains(script, "avdslim_flag") ||
+		!strings.Contains(script, "avd_dir") ||
 		(os.Getenv("ANDROID_AVD_HOME") != "" && !strings.Contains(script, "ANDROID_AVD_HOME"))
 }
 
@@ -234,8 +235,38 @@ done
 
 # avdslim_flag reads an avdslim.* marker from the AVD's config.ini; "yes" means
 # the user re-enabled that feature with `+"`avdslim enable <feature>`"+`.
-AVD_HOME="${ANDROID_AVD_HOME:-$HOME/.android/avd}"
-CFG="$AVD_HOME/${AVD_NAME}.avd/config.ini"
+# The AVD home and folder resolve as config.GetAvdBaseDir and config.iniAvdDir do.
+AVD_HOME=""
+for c in "${ANDROID_AVD_HOME:-}" "${ANDROID_SDK_HOME:+$ANDROID_SDK_HOME/avd}" "${ANDROID_USER_HOME:+$ANDROID_USER_HOME/avd}"; do
+    if [ -n "$c" ] && [ -d "$c" ]; then AVD_HOME="$c"; break; fi
+done
+if [ -z "$AVD_HOME" ]; then AVD_HOME="$HOME/.android/avd"; fi
+
+# avd_dir prints the folder of AVD $1: its .ini's path=, else path.rel= (relative
+# to the AVD home's parent), else <home>/<name>.avd.
+avd_dir() {
+    ini="$AVD_HOME/$1.ini"
+    p=""
+    rel=""
+    if [ -f "$ini" ]; then
+        p=$(sed -n 's/^[[:space:]]*path[[:space:]]*=[[:space:]]*//p' "$ini" | tr -d '\r' | sed 's/[[:space:]]*$//' | tail -n 1)
+        rel=$(sed -n 's/^[[:space:]]*path\.rel[[:space:]]*=[[:space:]]*//p' "$ini" | tr -d '\r' | sed 's/[[:space:]]*$//' | tail -n 1)
+    fi
+    if [ -n "$p" ]; then
+        case "$p" in
+            "~/"*) echo "$HOME/${p#??}" ;;
+            *) echo "$p" ;;
+        esac
+    elif [ -n "$rel" ]; then
+        echo "$(dirname "$AVD_HOME")/$rel"
+    else
+        echo "$AVD_HOME/$1.avd"
+    fi
+}
+
+AVD_DIR=""
+if [ -n "$AVD_NAME" ]; then AVD_DIR=$(avd_dir "$AVD_NAME"); fi
+CFG="$AVD_DIR/config.ini"
 avdslim_flag() {
     [ -n "$AVD_NAME" ] && [ -f "$CFG" ] || return 0
     sed -n "s/^[[:space:]]*$1[[:space:]]*=[[:space:]]*//p" "$CFG" | tr -d ' \r' | tail -n 1
@@ -253,7 +284,7 @@ if [ "$NO_SLIM" -ne 1 ]; then
         EXTRA+=("-no-window")
     fi
     if [ "$HAS_SNAP" -eq 0 ] && [ -n "$AVD_NAME" ]; then
-        SNAP_DIR="$AVD_HOME/${AVD_NAME}.avd/snapshots/avdslim_clean"
+        SNAP_DIR="$AVD_DIR/snapshots/avdslim_clean"
         if [ -d "$SNAP_DIR" ]; then
             EXTRA+=("-snapshot" "avdslim_clean" "-no-snapshot-save")
         fi

@@ -20,6 +20,8 @@ func fakeSdk(t *testing.T, content string) string {
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("XDG_CONFIG_HOME", "")
 	t.Setenv("ANDROID_AVD_HOME", "")
+	t.Setenv("ANDROID_SDK_HOME", "")
+	t.Setenv("ANDROID_USER_HOME", "")
 	dir := filepath.Join(sdk, "emulator")
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		t.Fatal(err)
@@ -228,5 +230,59 @@ func TestShimHonorsAndroidAvdHome(t *testing.T) {
 	}
 	if strings.Contains(got, "-no-audio") {
 		t.Errorf("avdslim.audio=yes under ANDROID_AVD_HOME ignored: %q", got)
+	}
+}
+
+// An AVD whose .ini name differs from its folder (#7) and an AVD home under
+// ANDROID_SDK_HOME (#6) must get the same snapshot and feature markers as the
+// Go side (config.ResolveAvd) finds for them.
+func TestShimResolvesAvdFolderLikeConfig(t *testing.T) {
+	cases := []struct {
+		name string
+		env  func(t *testing.T, home string) []string
+		ini  func(folder string) string
+		dir  func(home string) string
+	}{
+		{
+			name: "absolute path= with a mismatched folder name",
+			env:  func(t *testing.T, home string) []string { return []string{"HOME=" + home} },
+			ini:  func(folder string) string { return "path=" + folder + "\n" },
+			dir:  func(home string) string { return filepath.Join(home, "Pixel_Real.avd") },
+		},
+		{
+			name: "path.rel= under ANDROID_SDK_HOME",
+			env: func(t *testing.T, home string) []string {
+				return []string{"HOME=" + home, "ANDROID_SDK_HOME=" + filepath.Join(home, "sdkhome")}
+			},
+			ini: func(folder string) string { return "path.rel=avd/Pixel_Real.avd\n" },
+			dir: func(home string) string { return filepath.Join(home, "sdkhome", "avd", "Pixel_Real.avd") },
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			home := t.TempDir()
+			t.Setenv("HOME", home)
+			avdHome := filepath.Join(home, ".android", "avd")
+			if strings.Contains(tc.name, "path.rel") {
+				avdHome = filepath.Join(home, "sdkhome", "avd")
+			}
+			if err := os.MkdirAll(avdHome, 0755); err != nil {
+				t.Fatal(err)
+			}
+			folder := tc.dir(home)
+			if err := os.MkdirAll(filepath.Join(folder, "snapshots", "avdslim_clean"), 0755); err != nil {
+				t.Fatal(err)
+			}
+			writeFile(t, filepath.Join(folder, "config.ini"), "avdslim.audio=yes\n")
+			writeFile(t, filepath.Join(avdHome, "Studio_Pixel.ini"), tc.ini(folder))
+
+			got := runShim(t, tc.env(t, home), "-avd", "Studio_Pixel")
+			if !strings.Contains(got, "-snapshot avdslim_clean") {
+				t.Errorf("Golden Snapshot in the ini's folder not used: %q", got)
+			}
+			if strings.Contains(got, "-no-audio") {
+				t.Errorf("avdslim.audio=yes in the ini's folder ignored: %q", got)
+			}
+		})
 	}
 }

@@ -7,6 +7,7 @@
 
 ### Fixed
 - **AVDs are found where the emulator keeps them.** An AVD whose `.ini` name differs from its folder now starts under either name (#7), and the AVD home follows `ANDROID_AVD_HOME`, then `ANDROID_SDK_HOME`/`ANDROID_USER_HOME`, before `~/.android/avd` (#6).
+- **The Android Studio shim finds AVDs the way `avdslim` does.** It reads the AVD's `.ini` `path=`/`path.rel=` and uses the same AVD home order as the CLI, so Studio launches of AVDs with a mismatched folder name (#7) or under `ANDROID_SDK_HOME`/`ANDROID_USER_HOME` (#6) get their snapshot and `avdslim.*` settings. Existing shims are rewritten on the next avdslim command.
 - **`watch` no longer skips every emulator, and `list` no longer shows SLIMMED for unslimmed ones.** The state-file check matched the file name inside adb's "No such file or directory" error (#9). It now tests for the file and matches the reply exactly.
 - **On Windows, host PID and RAM are found again** (#5). The host PID lookup used `lsof`/`ps`, which Windows lacks, so `restart`, `bake` and `stop` treated a running emulator as stopped and `list`/`measure` showed no host memory. Windows now uses `netstat -ano` and `tasklist`.
 
