@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+- **Emulators started by `start`/`bake` keep their gRPC endpoint.** Pinning the console with `-port` stopped the emulator (36.3.10) from starting gRPC and writing its `avd/running/pid_*.ini` discovery file, so Android Studio's embedded emulator and gRPC tools such as argent couldn't attach. avdslim now also passes `-grpc <port+3000> -grpc-use-token -grpc-use-jwt`, the port and auth a default launch uses.
+
 ## v1.0.17 — 2026-11-20
 
 ### Added

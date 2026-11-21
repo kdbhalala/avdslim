@@ -974,7 +974,7 @@ func handleLaunch(client *adb.Client, args []string) {
 
 	port := freeEmulatorPort(client)
 	serial := "emulator-" + strconv.Itoa(port)
-	emuArgs = append(emuArgs, "-port", strconv.Itoa(port))
+	emuArgs = append(emuArgs, portArgs(port)...)
 
 	hasGolden := config.HasGoldenSnapshot(avdName)
 	if hasGolden && !forceCold {
@@ -1315,6 +1315,17 @@ func freeEmulatorPort(client *adb.Client) int {
 	return 5554
 }
 
+// portArgs pins the console port. An explicit -port stops the emulator starting
+// its default gRPC endpoint and writing its avd/running/pid_*.ini discovery
+// file, which tools like Android Studio and argent need, so it asks for both
+// back at the port and auth the default launch would use.
+func portArgs(port int) []string {
+	return []string{
+		"-port", strconv.Itoa(port),
+		"-grpc", strconv.Itoa(port + 3000), "-grpc-use-token", "-grpc-use-jwt",
+	}
+}
+
 func findEmulator() string {
 	return config.FindEmulatorExecutable()
 }
@@ -1611,7 +1622,7 @@ func handleBake(client *adb.Client, args []string) {
 	}
 	port := freeEmulatorPort(client)
 	targetSerial := "emulator-" + strconv.Itoa(port)
-	emuArgs = append(emuArgs, "-port", strconv.Itoa(port))
+	emuArgs = append(emuArgs, portArgs(port)...)
 	if headless {
 		emuArgs = append(emuArgs, "-no-window")
 	}
