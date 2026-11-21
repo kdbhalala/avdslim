@@ -429,7 +429,15 @@ func TestStartLaunchesAndSlims(t *testing.T) {
 		t.Fatalf("start failed:\n%s", out)
 	}
 	mustContain(t, out, "Boot complete", "Slimming complete")
-	mustContain(t, d.read("emulator_calls"), "-avd Avdslim_Test_Pixel ", "-lowram", "-memory 1536", "-no-snapshot-load")
+	mustContain(t, d.read("emulator_calls"), "-avd Avdslim_Test_Pixel ", "-lowram", "-memory 1536", "-no-snapshot-load",
+		"-grpc-use-token -grpc-use-jwt")
+}
+
+func TestPortArgsKeepGrpc(t *testing.T) {
+	want := "-port 5556 -grpc 8556 -grpc-use-token -grpc-use-jwt"
+	if got := strings.Join(portArgs(5556), " "); got != want {
+		t.Errorf("portArgs(5556) = %q, want %q", got, want)
+	}
 }
 
 func TestStartLowCPU(t *testing.T) {
