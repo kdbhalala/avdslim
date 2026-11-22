@@ -23,9 +23,10 @@ func (c *Client) flushPackageRestrictions(serial string) error {
 	barrier, want := "sleep 11 && cmd package wait-for-background-handler --timeout 30000", "Success"
 	switch {
 	case sdk <= 32:
-		// Older AOSP versions implement this as a synchronous settings write,
-		// including user package restrictions. Later versions only print a dump.
-		barrier, want = "dumpsys package write", "Settings written."
+		// Older AOSP flushes user restrictions here. Its acknowledgment can
+		// precede durable directory updates; sync before a possible hard stop.
+		// Later AOSP versions only print an ordinary package dump.
+		barrier, want = "dumpsys package write && sync", "Settings written."
 	case sdk == 33:
 		// Android 13 moved the write out of dumpsys but still uses PM's main
 		// handler. freeStorageAndNotify queues work there and waits for it.

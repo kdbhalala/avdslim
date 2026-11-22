@@ -325,7 +325,7 @@ func TestMutationsCannotInterleaveWithAnotherJournalOwner(t *testing.T) {
 
 func TestPackagePersistenceBarrierMustMatchTheGuestAPIAndAcknowledge(t *testing.T) {
 	for _, tc := range []struct{ api, command string }{
-		{"32", "dumpsys package write"},
+		{"32", "dumpsys package write && sync"},
 		{"33", "sleep 11 && pm trim-caches 0 && echo drained"},
 		{"34", "sleep 11 && cmd package wait-for-background-handler --timeout 30000"},
 	} {

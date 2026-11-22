@@ -82,7 +82,7 @@ case "$1" in
     exit $? ;;
 esac
 case "$*" in
-  "dumpsys package write") barrier="Settings written." ;;
+  "dumpsys package write && sync") barrier="Settings written." ;;
   "sleep 11 && pm trim-caches 0 && echo drained") barrier=drained ;;
   "sleep 11 && cmd package wait-for-background-handler --timeout 30000") barrier=Success ;;
 esac

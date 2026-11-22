@@ -236,6 +236,8 @@ avdslim off
 
 With no restore record, there is nothing to undo. An empty package list skips package changes and still allows recorded settings to be restored. If `on` was interrupted or `off` reports a failure, run `avdslim off` again after addressing the error. Older records stored only package names. For those packages, `off` warns before restoring a still-disabled package as explicitly enabled.
 
+Run `off` with this version before downgrading. Releases through v1.0.17 interpret an empty package list as a request to enable all known packages.
+
 On Android 13 and later, allow about 11 extra seconds per batch of package changes. Android schedules a delayed write. avdslim waits for that work and checks the package states before reporting success, so you can stop the emulator as soon as the command returns.
 
 ---
