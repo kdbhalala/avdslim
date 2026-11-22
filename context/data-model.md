@@ -1,7 +1,6 @@
 # Data model — avdslim
 
-No database. No schemas, no migrations, no API. All state is files on host or
-guest, or live emulator flags.
+State lives in host or guest files and live emulator flags.
 
 ## Entities
 
@@ -18,14 +17,18 @@ guest, or live emulator flags.
   (live state incl. installed apps/logins). Deleted by `unbake` (`RemoveAll`).
   Consumed by `start`/`launch` and the shim as
   `-snapshot avdslim_clean -no-snapshot-save`.
-- **Slim state** — `/data/local/tmp/avdslim_state.json` **on the device**
-  (`SlimState{timestamp, disabled_packages, preset, settings}`), written by
-  `Slim`, updated by `Enable`, read by `Restore`. `settings` maps `namespace/name` → value before
-  avdslim first changed it (`null` = was unset); kept across re-slims;
-  `--skip` groups are not recorded. `settings` missing (state from <= 1.0.5)
-  → `Restore` puts hardcoded stock values back. Absent (or unparseable) →
-  `Restore` re-enables every known package (standard + aggressive). Wiped on factory reset; `IsSlimmed`
-  in `list`/`watch`/`doctor` is derived from this file's existence.
+- **Slim state** — `/data/local/tmp/avdslim_state.json` on the device.
+  Version 1 records the preset, timestamp and package names in `disabled_packages`.
+  `package_states` maps those names to user 0's original override (0 for app
+  default, 1 for explicitly enabled, or `null` for a migrated legacy entry).
+  An interrupted package disable leaves `applying: true` for recovery with `off`.
+  `settings` maps each recorded `namespace/name` to its original value
+  (`null` means unset). Re-slimming preserves these originals.
+  Unversioned records restore only listed packages. A pre-1.0.6 record with
+  listed packages and no settings retains its historical stock-settings
+  fallback on migration (`legacy_settings`). A missing journal makes `off`
+  a no-op. An invalid journal returns an error and stays available for inspection.
+  Factory reset wipes the journal. `IsSlimmed` is derived from its existence.
 - **Bloat lists** — compile-time constants in `internal/bloat/packages.go`:
   `StandardBloatCategories map[string][]string` (~50 pkgs across 9 categories),
   `AggressiveBloatPackages` (5 pkgs: Play Store updater, Chrome, setup wizards).

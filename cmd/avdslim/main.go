@@ -173,7 +173,7 @@ Commands:
                                 --keep=<package> (preserve specific package, e.g. Maps)
                                 --no-anim (turn animations 0x for instant UI response)
                                 --skip=<groups> (leave alone: bluetooth,bglimit,sync,location,setup)
-  restore, off         Undo 'on': re-enable disabled packages & restore changed settings
+  restore, off         Restore package states and settings recorded by 'on'
   enable <target> [dev] Re-enable a feature or package
                        Guest (running AVD): bluetooth, animations, sync, location, bglimit
                        Host (config.ini):   audio, camera, dpad, bootanim — needs a restart
@@ -388,7 +388,7 @@ func handleOn(client *adb.Client, args []string) {
 	fmt.Println("ℹ️  This frees RAM inside Android and makes it more responsive. Host RAM")
 	fmt.Println("   (Activity Monitor / Task Manager) won't drop now: that saving comes from")
 	fmt.Println("   the launch settings (`avdslim tune-avd` + `avdslim start`). Check it with `avdslim measure`.")
-	fmt.Printf("ℹ️  To restore default stock services anytime:\n   avdslim off %s\n\n", serial)
+	fmt.Printf("ℹ️  To undo the recorded guest changes, run\n   avdslim off %s\n\n", serial)
 }
 
 func handleOff(client *adb.Client, args []string) {
@@ -398,19 +398,17 @@ func handleOff(client *adb.Client, args []string) {
 		os.Exit(1)
 	}
 
-	fmt.Printf("🔄 Restoring default services for %s...\n\n", serial)
-	fmt.Println("1. Re-enabling packages:")
+	fmt.Printf("🔄 Restoring recorded guest changes for %s...\n\n", serial)
 	count, err := client.Restore(serial)
 	fmt.Printf("   -> Restored %d packages.\n\n", count)
 	if err != nil {
 		fmt.Printf("❌ %v\n", err)
 		os.Exit(1)
 	}
-	fmt.Println("2. Restored the system settings avdslim changed to their previous values.")
-	fmt.Printf("✅ Successfully restored %s to stock configuration.\n\n", serial)
+	fmt.Printf("✅ Restore complete for %s.\n\n", serial)
 	if name := avdNameForSerial(client, serial); name != "" && config.HasGoldenSnapshot(name) {
 		fmt.Println("⚠️  This AVD has a slimmed Golden Snapshot. `avdslim start` boots from it,")
-		fmt.Println("   so the next launch is slimmed again. To stay stock:")
+		fmt.Println("   so the next launch is slimmed again. To boot with the restored changes:")
 		fmt.Printf("   avdslim unbake %s     (or launch with: avdslim start %s --cold)\n\n", name, name)
 	}
 }

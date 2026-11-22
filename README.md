@@ -46,7 +46,7 @@ The #1 fear with debloating tools is silent breakage. `avdslim` is designed to b
 | **Android System WebView** | ✅ **100% Active** | Chromium engine, JavaScript, and in-app browsers untouched |
 | **Flutter / React Native / Native** | ✅ **100% Active** | Hot reload, DevTools, debugging, and JNI/NDK runtimes work 100% |
 | **Localhost & Network Sockets** | ✅ **100% Active** | TCP/UDP, Metro bundler (`:8081`), and adb reverse unaffected |
-| **Full Revert (`off`)** | ✅ **One Command** | `avdslim off` re-enables every package avdslim disabled and puts each changed setting back to its previous value. If a package can't be re-enabled, it says which and `off` can be re-run. After `avdslim bake`, also run `avdslim unbake` (the snapshot is slimmed). |
+| **Undo guest changes (`off`)** | ✅ **One Command** | `avdslim off` restores recorded package states and settings. After `avdslim bake`, also run `avdslim unbake` to remove the slimmed snapshot. |
 
 ---
 
@@ -224,13 +224,19 @@ avdslim watch
 
 ---
 
-### 7. Instant Undo / Restore (`restore`, `off`)
-Need to verify a bug with 100% stock Google services? One command re-enables the packages avdslim disabled and puts every setting it changed back to the value it had before (e.g. your 0.5x animations stay 0.5x):
+### 7. Undo guest changes (`restore`, `off`)
+
+`avdslim off` restores the package states and settings recorded by `on` on this emulator. For each package it disabled for Android user 0, it restores the original choice (app default or explicitly enabled). If you subsequently changed that package to a different state, `off` preserves your choice.
+
 ```bash
 avdslim restore
 # Or use alias:
 avdslim off
 ```
+
+With no restore record, there is nothing to undo. An empty package list skips package changes and still allows recorded settings to be restored. If `on` was interrupted or `off` reports a failure, run `avdslim off` again after addressing the error. Older records stored only package names. For those packages, `off` warns before restoring a still-disabled package as explicitly enabled.
+
+On Android 13 and later, allow about 11 extra seconds per batch of package changes. Android schedules a delayed write. avdslim waits for that work and checks the package states before reporting success, so you can stop the emulator as soon as the command returns.
 
 ---
 

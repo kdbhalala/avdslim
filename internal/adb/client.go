@@ -26,12 +26,19 @@ type RunningEmulator struct {
 }
 
 type SlimState struct {
+	Version          int      `json:"version,omitempty"`
+	Applying         bool     `json:"applying,omitempty"`
 	Timestamp        string   `json:"timestamp"`
 	DisabledPackages []string `json:"disabled_packages"`
 	Preset           string   `json:"preset"`
+	// PackageStates records user 0's original override for each owned package.
+	// A nil entry is a legacy disable whose original override was never recorded.
+	PackageStates map[string]*int `json:"package_states"`
 	// Settings maps "namespace/name" to its value before avdslim first changed it
 	// (a nil value means it was unset). A nil map means a <= 1.0.5 state.
 	Settings map[string]*string `json:"settings"`
+	// LegacySettings carries the pre-1.0.6 stock-values fallback across a re-slim.
+	LegacySettings bool `json:"legacy_settings,omitempty"`
 }
 
 // tweak is one guest setting Slim changes; Group is the name --skip accepts.
@@ -65,18 +72,40 @@ func IsSkipGroup(g string) bool {
 	return false
 }
 
-func (c *Client) readState(serial string) (SlimState, bool) {
+// A missing journal is a no-op for off. An unreadable or damaged journal must
+// survive for recovery and must never be treated as permission to start over.
+func (c *Client) readState(serial string) (SlimState, bool, error) {
 	var state SlimState
-	raw, err := c.Exec("-s", serial, "shell", "cat", StateFilePath)
-	if err != nil || !strings.Contains(raw, "disabled_packages") {
-		return state, false
+	probe := "if [ -e " + StateFilePath + " ]; then echo present && cat " + StateFilePath + "; else echo absent; fi"
+	out, err := c.Exec("-s", serial, "shell", probe)
+	if err != nil {
+		return state, false, fmt.Errorf("read %s: %w", StateFilePath, err)
 	}
-	return state, json.Unmarshal([]byte(raw), &state) == nil
+	if strings.TrimSpace(out) == "absent" {
+		return state, false, nil
+	}
+	header, raw, ok := strings.Cut(out, "\n")
+	var fields struct {
+		DisabledPackages json.RawMessage `json:"disabled_packages"`
+	}
+	if !ok || strings.TrimSpace(header) != "present" || json.Unmarshal([]byte(raw), &fields) != nil || fields.DisabledPackages == nil {
+		return state, false, fmt.Errorf("invalid %s: expected a package restore record", StateFilePath)
+	}
+	if err := json.Unmarshal([]byte(raw), &state); err != nil {
+		return state, false, fmt.Errorf("invalid %s: %w", StateFilePath, err)
+	}
+	if err := state.validatePackageState(); err != nil {
+		return state, false, fmt.Errorf("invalid %s: %w", StateFilePath, err)
+	}
+	return state, true, nil
 }
 
-// writeState saves state on the guest and reads it back, since a failed
-// shell redirect does not always make adb exit non-zero.
+// Replace the journal atomically on the same filesystem and flush it before
+// changing any packages. A failed rewrite leaves a complete recovery record.
 func (c *Client) writeState(serial string, state SlimState) error {
+	if state.DisabledPackages == nil {
+		state.DisabledPackages = []string{}
+	}
 	stateJson, err := json.Marshal(state)
 	if err != nil {
 		return err
@@ -84,13 +113,29 @@ func (c *Client) writeState(serial string, state SlimState) error {
 	// adb joins the args into one remote shell line, so quote for that shell:
 	// a recorded setting value may contain a single quote.
 	quoted := "'" + strings.ReplaceAll(string(stateJson), "'", `'\''`) + "'"
-	out, err := c.Exec("-s", serial, "shell", "echo", quoted, ">", StateFilePath)
+	script := "tmp=$(mktemp " + StateFilePath + ".XXXXXX) || exit 1; " +
+		"trap 'rm -f \"$tmp\"' EXIT; printf '%s\\n' " + quoted + " > \"$tmp\" && mv -f \"$tmp\" " + StateFilePath + " && sync"
+	out, err := c.Exec("-s", serial, "shell", script)
 	if err != nil {
 		return fmt.Errorf("cannot write %s: %s", StateFilePath, strings.TrimSpace(out))
 	}
-	got, ok := c.readState(serial)
-	if !ok || strings.Join(got.DisabledPackages, ",") != strings.Join(state.DisabledPackages, ",") {
+	got, err := c.Exec("-s", serial, "shell", "cat", StateFilePath)
+	if err != nil || strings.TrimSpace(got) != string(stateJson) {
 		return fmt.Errorf("cannot write %s: read-back does not match", StateFilePath)
+	}
+	return nil
+}
+
+func (c *Client) removeState(serial string) error {
+	if out, err := c.Exec("-s", serial, "shell", "rm", "-f", StateFilePath, "&&", "sync"); err != nil {
+		return fmt.Errorf("remove %s: %s (%w)", StateFilePath, strings.TrimSpace(out), err)
+	}
+	_, exists, err := c.readState(serial)
+	if err != nil {
+		return err
+	}
+	if exists {
+		return fmt.Errorf("could not remove %s", StateFilePath)
 	}
 	return nil
 }
@@ -219,6 +264,11 @@ func (c *Client) ResolveDevice(args []string) (string, error) {
 
 // Slim disables bloat packages and applies tweaks, except groups in skip.
 func (c *Client) Slim(serial string, aggressive bool, keepPackages []string, skip map[string]bool) (int, error) {
+	unlock, err := c.lockJournal(serial)
+	if err != nil {
+		return 0, err
+	}
+	defer unlock()
 	targetPackages := make([]string, 0, 70)
 	for cat, pkgs := range bloat.StandardBloatCategories {
 		if strings.HasPrefix(cat, "Bluetooth") && skip["bluetooth"] {
@@ -235,24 +285,40 @@ func (c *Client) Slim(serial string, aggressive bool, keepPackages []string, ski
 		keepMap[k] = true
 	}
 
-	installedRaw, err := c.Exec("-s", serial, "shell", "pm", "list", "packages")
-	installedMap := make(map[string]bool)
-	for _, l := range strings.Split(installedRaw, "\n") {
-		if clean, ok := strings.CutPrefix(strings.TrimSpace(l), "package:"); ok && clean != "" {
-			installedMap[clean] = true
+	state, _, err := c.readState(serial)
+	if err != nil {
+		return 0, err
+	}
+	if state.Applying {
+		return 0, fmt.Errorf("a previous slim did not finish; run `avdslim off %s` before slimming again", serial)
+	}
+	state.initPackageStates()
+	installed, err := c.listedPackages(serial, false)
+	if err != nil {
+		return 0, err
+	}
+	enabled, err := c.listedPackages(serial, true)
+	if err != nil {
+		return 0, err
+	}
+	var toDisable, toKeep []string
+	for _, pkg := range state.DisabledPackages {
+		if keepMap[pkg] {
+			toKeep = append(toKeep, pkg)
 		}
 	}
-	if err != nil || len(installedMap) == 0 {
-		if strings.Contains(installedRaw, "Can't find service: package") {
-			return 0, fmt.Errorf("the guest's package manager is not running: its framework is crash-looping " +
-				"(the Android 16+ bug from avdslim <= 1.0.8). Fix it with `avdslim repair`")
-		}
-		return 0, fmt.Errorf("cannot list guest packages (is the emulator fully booted?): %s", strings.TrimSpace(installedRaw))
-	}
-
-	toDisable := make([]string, 0, len(targetPackages))
 	for _, pkg := range targetPackages {
-		if installedMap[pkg] && !keepMap[pkg] {
+		_, owned := state.PackageStates[pkg]
+		if owned || keepMap[pkg] || !installed[pkg] || !enabled[pkg] {
+			continue
+		}
+		original, err := c.packageOverride(serial, pkg)
+		if err != nil {
+			return 0, err
+		}
+		if original == packageDefault || original == packageEnabled {
+			state.PackageStates[pkg] = &original
+			state.DisabledPackages = append(state.DisabledPackages, pkg)
 			toDisable = append(toDisable, pkg)
 		}
 	}
@@ -263,60 +329,47 @@ func (c *Client) Slim(serial string, aggressive bool, keepPackages []string, ski
 	}
 	// Record each setting's original value before changing it. Keep values from an
 	// earlier slim, or a re-slim would record the slimmed values as "original".
-	// A <= 1.0.5 state has no originals and its values are already slimmed, so record none.
-	prev, hasPrev := c.readState(serial)
-	var originals map[string]*string
-	if !hasPrev || prev.Settings != nil {
-		originals = make(map[string]*string)
-		for k, v := range prev.Settings {
-			originals[k] = v
+	// A legacy record with named packages retains its stock-settings fallback.
+	// For an empty legacy record, capture today's values before this run changes them.
+	if !state.LegacySettings {
+		if state.Settings == nil {
+			state.Settings = make(map[string]*string)
 		}
 		for _, t := range tweaks {
 			key := t.Namespace + "/" + t.Name
-			if _, ok := originals[key]; !ok && !skip[t.Group] {
-				originals[key] = c.getSetting(serial, t.Namespace, t.Name)
+			if _, ok := state.Settings[key]; !ok && !skip[t.Group] {
+				state.Settings[key] = c.getSetting(serial, t.Namespace, t.Name)
 			}
 		}
 	}
 
-	// Write the record before touching the guest, listing everything this run
-	// may disable plus what earlier runs did; `pm enable` on a package that
-	// stayed enabled is harmless. No record, no changes: `off` needs it.
-	state := SlimState{
-		Timestamp:        time.Now().Format(time.RFC3339),
-		DisabledPackages: union(prev.DisabledPackages, toDisable),
-		Preset:           preset,
-		Settings:         originals,
-	}
+	state.Timestamp = time.Now().Format(time.RFC3339)
+	state.Preset = preset
+	state.Applying = len(toDisable) > 0
+	// Journal the original overrides before any mutation, including --keep.
 	if err := c.writeState(serial, state); err != nil {
 		return 0, fmt.Errorf("%w; nothing was changed", err)
 	}
 
-	// --keep on a re-slim: bring back packages an earlier slim disabled.
-	recorded := prev.DisabledPackages
-	for _, pkg := range prev.DisabledPackages {
-		if !keepMap[pkg] {
-			continue
+	if len(toKeep) > 0 {
+		restored, restoreErr := c.restorePackages(serial, &state, toKeep)
+		if err := c.writeState(serial, state); err != nil {
+			return 0, err
 		}
-		if res, _ := c.Exec("-s", serial, "shell", "pm", "enable", pkg); strings.Contains(res, "new state") {
-			recorded = remove(recorded, pkg)
-			fmt.Printf("   ✓ Re-enabled (--keep): %s\n", pkg)
+		if restoreErr != nil {
+			return 0, restoreErr
+		}
+		for _, pkg := range restored {
+			fmt.Printf("   ✓ Restored (--keep): %s\n", pkg)
 		}
 	}
-
-	disabledList := make([]string, 0, len(toDisable))
+	count := 0
 	for _, pkg := range toDisable {
-		res, _ := c.Exec("-s", serial, "shell", "pm", "disable-user", "--user", "0", pkg)
-		if strings.Contains(res, "disabled-user") || strings.Contains(res, "new state") {
-			disabledList = append(disabledList, pkg)
-			fmt.Printf("   ✓ Disabled: %s\n", pkg)
+		if err := c.setPackageOverride(serial, pkg, packageDisabledUser); err != nil {
+			return count, fmt.Errorf("%w; run `avdslim off` to restore the recorded packages", err)
 		}
-	}
-
-	state.DisabledPackages = union(recorded, disabledList)
-	if err := c.writeState(serial, state); err != nil {
-		// The first record is a superset, so `off` still undoes everything.
-		fmt.Printf("   ⚠️  Could not update the state record (%v); `avdslim off` still restores everything\n", err)
+		count++
+		fmt.Printf("   ✓ Disabled: %s\n", pkg)
 	}
 
 	for _, t := range tweaks {
@@ -334,34 +387,41 @@ func (c *Client) Slim(serial string, aggressive bool, keepPackages []string, ski
 	c.Exec("-s", serial, "shell", "su", "0", "sync")
 	c.Exec("-s", serial, "shell", "su", "0", "echo 3 > /proc/sys/vm/drop_caches")
 
-	return len(disabledList), nil
+	if state.Applying {
+		if err := c.flushPackageRestrictions(serial); err != nil {
+			return count, err
+		}
+		for _, pkg := range toDisable {
+			got, err := c.packageOverride(serial, pkg)
+			if err != nil || got != packageDisabledUser {
+				return count, fmt.Errorf("cannot verify the disable of %s; the recovery record was kept", pkg)
+			}
+		}
+		state.Applying = false
+		if err := c.writeState(serial, state); err != nil {
+			return count, fmt.Errorf("cannot finalize the slim; run `avdslim off` to restore: %w", err)
+		}
+	}
+	return count, nil
 }
 
 func (c *Client) Restore(serial string) (int, error) {
-	var packagesToEnable []string
-	state, hasState := c.readState(serial)
-	if hasState {
-		packagesToEnable = state.DisabledPackages
+	unlock, err := c.lockJournal(serial)
+	if err != nil {
+		return 0, err
 	}
-
-	if len(packagesToEnable) == 0 {
-		for _, pkgs := range bloat.StandardBloatCategories {
-			packagesToEnable = append(packagesToEnable, pkgs...)
-		}
-		packagesToEnable = append(packagesToEnable, bloat.AggressiveBloatPackages...)
+	defer unlock()
+	state, hasState, err := c.readState(serial)
+	if err != nil || !hasState {
+		return 0, err
 	}
-
-	restoredCount := 0
-	var failed []string
-	for _, pkg := range packagesToEnable {
-		res, _ := c.Exec("-s", serial, "shell", "pm", "enable", pkg)
-		if strings.Contains(res, "new state") {
-			restoredCount++
-			fmt.Printf("   ✓ Enabled: %s\n", pkg)
-		} else if hasState {
-			failed = append(failed, pkg)
-			fmt.Printf("   ✗ Could not enable %s: %s\n", pkg, strings.TrimSpace(res))
+	state.initPackageStates()
+	restored, restoreErr := c.restorePackages(serial, &state, state.DisabledPackages)
+	if restoreErr != nil {
+		if err := c.writeState(serial, state); err != nil {
+			return len(restored), fmt.Errorf("%v; cannot save the remaining packages: %w", restoreErr, err)
 		}
+		return len(restored), restoreErr
 	}
 
 	if state.Settings != nil {
@@ -379,8 +439,9 @@ func (c *Client) Restore(serial string) (int, error) {
 		if orig, recorded := state.Settings["global/bluetooth_on"]; recorded && (orig == nil || *orig != "0") {
 			c.Exec("-s", serial, "shell", "cmd", "bluetooth_manager", "enable")
 		}
-	} else {
-		// ponytail: state from avdslim <= 1.0.5 has no originals, so fall back to stock values.
+	} else if state.LegacySettings {
+		// Pre-1.0.6 records have no setting originals. Preserve their historical
+		// stock-values fallback only when a nonempty legacy record exists.
 		c.Exec("-s", serial, "shell", "settings", "put", "global", "window_animation_scale", "1")
 		c.Exec("-s", serial, "shell", "settings", "put", "global", "transition_animation_scale", "1")
 		c.Exec("-s", serial, "shell", "settings", "put", "global", "animator_duration_scale", "1")
@@ -389,41 +450,11 @@ func (c *Client) Restore(serial string) (int, error) {
 		c.Exec("-s", serial, "shell", "settings", "put", "secure", "location_mode", "3")
 		c.Exec("-s", serial, "shell", "settings", "put", "global", "bluetooth_on", "1")
 		c.Exec("-s", serial, "shell", "cmd", "bluetooth_manager", "enable")
+	} else {
+		fmt.Println("   ⚠️  Legacy state has no original settings; leaving guest settings unchanged.")
 	}
 
-	if len(failed) > 0 {
-		// Keep only what is still disabled so `avdslim off` can be retried.
-		// Settings stay recorded; putting them back again is harmless.
-		state.DisabledPackages = failed
-		if err := c.writeState(serial, state); err != nil {
-			return restoredCount, fmt.Errorf("%d package(s) still disabled (%s) and the state record could not be updated: %v", len(failed), strings.Join(failed, ", "), err)
-		}
-		return restoredCount, fmt.Errorf("%d package(s) still disabled: %s (run `avdslim off` again)", len(failed), strings.Join(failed, ", "))
-	}
-	c.Exec("-s", serial, "shell", "rm", "-f", StateFilePath)
-
-	return restoredCount, nil
-}
-
-// union returns a followed by the items of b not already in a.
-func union(a, b []string) []string {
-	out := append([]string(nil), a...)
-	for _, s := range b {
-		if !contains(out, s) {
-			out = append(out, s)
-		}
-	}
-	return out
-}
-
-func remove(list []string, s string) []string {
-	var out []string
-	for _, x := range list {
-		if x != s {
-			out = append(out, x)
-		}
-	}
-	return out
+	return len(restored), c.removeState(serial)
 }
 
 func contains(list []string, s string) bool {
@@ -522,12 +553,23 @@ var featureAliases = map[string][]string{
 // Enable re-enables a specific feature, setting group, or package on the device,
 // and updates the on-device state JSON.
 func (c *Client) Enable(serial, target string) ([]string, error) {
+	unlock, err := c.lockJournal(serial)
+	if err != nil {
+		return nil, err
+	}
+	defer unlock()
 	norm := strings.ToLower(strings.TrimSpace(target))
 	var actions []string
 	var packagesToEnable []string
 	var settingsToRemove []string
 
-	state, hasState := c.readState(serial)
+	state, hasState, err := c.readState(serial)
+	if err != nil {
+		return nil, err
+	}
+	if hasState {
+		state.initPackageStates()
+	}
 
 	switch norm {
 	case "bluetooth", "bt":
@@ -589,38 +631,44 @@ func (c *Client) Enable(serial, target string) ([]string, error) {
 		}
 	}
 
-	enabledSet := make(map[string]bool)
+	var owned []string
 	for _, pkg := range packagesToEnable {
-		res, _ := c.Exec("-s", serial, "shell", "pm", "enable", pkg)
-		if strings.Contains(res, "enabled") || strings.Contains(res, "new state") || res == "" {
+		if !packageName.MatchString(pkg) {
+			return actions, fmt.Errorf("invalid package name %q", pkg)
+		}
+		if contains(state.DisabledPackages, pkg) {
+			owned = append(owned, pkg)
+			continue
+		}
+		// An explicit enable of an unmanaged app is still a user request, not
+		// an implicit restore. An alias can include apps absent on this image.
+		if err := c.setPackageOverride(serial, pkg, packageEnabled); err == nil {
 			actions = append(actions, fmt.Sprintf("Enabled package: %s", pkg))
-			enabledSet[pkg] = true
+		} else if target == pkg {
+			return actions, err
 		}
 	}
-
+	restored, restoreErr := c.restorePackages(serial, &state, owned)
+	for _, pkg := range restored {
+		actions = append(actions, fmt.Sprintf("Restored package: %s", pkg))
+	}
 	if hasState {
-		var updatedDisabled []string
-		for _, p := range state.DisabledPackages {
-			if !enabledSet[p] {
-				updatedDisabled = append(updatedDisabled, p)
-			}
-		}
-		state.DisabledPackages = updatedDisabled
-
 		if state.Settings != nil {
 			for _, s := range settingsToRemove {
 				delete(state.Settings, s)
 			}
 		}
 
-		if len(state.DisabledPackages) == 0 && (state.Settings == nil || len(state.Settings) == 0) {
-			c.Exec("-s", serial, "shell", "rm", "-f", StateFilePath)
+		if len(state.DisabledPackages) == 0 && len(state.Settings) == 0 && !state.LegacySettings {
+			if err := c.removeState(serial); err != nil {
+				return actions, err
+			}
 		} else if err := c.writeState(serial, state); err != nil {
 			return actions, fmt.Errorf("enabled, but the state record was not updated (`avdslim off` may re-apply it): %w", err)
 		}
 	}
 
-	return actions, nil
+	return actions, restoreErr
 }
 
 func findAdb() string {
