@@ -140,8 +140,8 @@ func TestReslimKeepsEarlierDisables(t *testing.T) {
 	if _, err := c.Restore("e"); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(read(t, dir, "calls"), "pm enable com.android.vending") {
-		t.Error("off did not re-enable the package the first slim disabled")
+	if got := read(t, dir, "enabled_com.android.vending"); got != "0" {
+		t.Errorf("after off, vending enabled setting = %q, want default", got)
 	}
 }
 
@@ -157,8 +157,8 @@ func TestReslimKeepReenables(t *testing.T) {
 		t.Fatal(err)
 	}
 	calls := read(t, dir, "calls")
-	if !strings.Contains(calls, "pm enable com.google.android.apps.maps") {
-		t.Error("kept package not re-enabled")
+	if got := read(t, dir, "enabled_com.google.android.apps.maps"); got != "0" {
+		t.Errorf("after --keep, maps enabled setting = %q, want default", got)
 	}
 	if strings.Contains(calls, "disable-user --user 0 com.google.android.apps.maps") {
 		t.Error("kept package disabled")
@@ -305,8 +305,31 @@ func TestResolveDevice(t *testing.T) {
 	}
 }
 
+func TestEnableLastLegacyPackagePreservesSettingsFallback(t *testing.T) {
+	c, dir := newFake(t)
+	const pkg = "com.google.android.apps.maps"
+	write(t, dir, "packages", pkg+"\n")
+	write(t, dir, "enabled_"+pkg, "3")
+	write(t, dir, "state", `{"disabled_packages":["com.google.android.apps.maps"]}`)
+	write(t, dir, "global_auto_sync", "0")
+
+	if _, err := c.Enable("e", "maps"); err != nil {
+		t.Fatal(err)
+	}
+	if got := read(t, dir, "enabled_"+pkg); got != "1" {
+		t.Fatalf("after enable: %s has override %q, want 1", pkg, got)
+	}
+	if restored, err := c.Restore("e"); err != nil || restored != 0 {
+		t.Fatalf("off after enable: restored %d packages, error %v", restored, err)
+	}
+	if got := setting(t, dir, "global", "auto_sync"); got != "1" {
+		t.Errorf("off after enable: auto_sync = %q, want legacy default 1", got)
+	}
+}
+
 func TestEnableTarget(t *testing.T) {
 	c, dir := newFake(t)
+	write(t, dir, "packages", "com.google.android.apps.maps\n")
 
 	// Slim the device first
 	c.Slim("e", false, nil, nil)

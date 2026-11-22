@@ -10,11 +10,11 @@ snapshot for ~1.5 s boots.
 - `cmd/avdslim/main.go` — only entrypoint. Hand-rolled arg parsing
   (`os.Args` switch, no cobra/flag lib). All 16+ commands live here as
   `handle*` functions (~1400 lines, the God-file).
-- `internal/adb/client.go` — adb subprocess wrapper (`Exec` = `CombinedOutput`).
-  Owns guest-side mutations: `Slim` (`pm disable-user`), `Restore` (`pm enable`),
-  `Enable` (selective feature/package re-enabling), system settings, memory trim.
-  Slim state persisted **on the device** at `/data/local/tmp/avdslim_state.json`;
-  `Restore` reads it, falls back to re-enabling every known package when absent.
+- `internal/adb/` — adb subprocess wrapper and guest mutations. `Slim` disables
+  selected user 0 packages and records their original overrides in
+  `/data/local/tmp/avdslim_state.json`. `Restore`, `Enable` and `--keep` share
+  the package restore logic. `Restore` also handles guest settings. A missing
+  journal makes `Restore` a no-op.
 - `internal/bloat/packages.go` — source of truth for package lists:
   `StandardBloatCategories` (map, safe) + `AggressiveBloatPackages` (slice,
   incl. Play Store updater + Chrome). Never disable anything not listed here;
@@ -72,18 +72,18 @@ stay independent of device state.
   overwrites it.
 - `background_process_limit = 4` and `max_cached_processes = 4`
   (eliminates cached app bloat while protecting OAuth/biometrics);
-  animations default to `1.0x` (stock fluid, turn off via `--no-anim`),
-  never delete keys on restore except `background_process_limit`.
+  animations keep their existing scale unless `--no-anim` is selected.
+  Restore deletes settings that were originally unset.
 - `hw.cpu.ncore = 2` enforced in `TuneAvd` to curb host thread overhead and
   ART compilation worker thread memory footprint.
 - `TuneAvd` rewrites `config.ini` from a map — key order is not preserved.
   Acceptable; do not "fix" by adding ordering unless a bug requires it.
-- Guest state record (`avdslim_state.json`) is write-ahead: `Slim` writes and
-  reads it back *before* changing anything, lists the union of every run's
-  disables, and aborts with no changes if the write fails. `Restore` deletes
-  it only after every package re-enabled; failures stay recorded for a retry.
-  It lives in the guest on purpose: it describes guest state, so `-wipe-data`
-  or a snapshot load resets both together.
+- `Slim` journals original overrides before changing packages. Restore only
+  undoes a recorded disable while user 0's override is still `disabled-user`.
+  It waits for the package manager's pending write and checks each override
+  before releasing the journal entry. Unconfirmed entries stay for retry.
+  Keeping the journal in the guest lets `-wipe-data` and snapshot loads reset
+  the journal and package state together.
 - Every host file avdslim deletes or replaces must survive failure: tune and
   host features refuse without `config.ini.bak`; `bake` keeps the previous
   Golden Snapshot until the new one is saved; `uninstall-shim` refuses when

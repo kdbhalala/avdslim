@@ -116,7 +116,7 @@ func TestOnOffRoundTrip(t *testing.T) {
 	if !ok {
 		t.Fatalf("off failed:\n%s", out)
 	}
-	mustContain(t, out, "Restored 2 packages", "Successfully restored "+serial)
+	mustContain(t, out, "Restored 2 packages", "Restore complete for "+serial)
 	if d.read("state") != "" {
 		t.Error("state file not removed")
 	}
@@ -219,7 +219,7 @@ func TestOffPartialFailureIsRetryable(t *testing.T) {
 	if ok {
 		t.Fatalf("off reported success with a package still disabled:\n%s", out)
 	}
-	mustContain(t, out, "still disabled: com.google.android.youtube")
+	mustContain(t, out, "com.google.android.youtube")
 
 	os.Remove(filepath.Join(d.dir, "enable_fails"))
 	if out, ok := d.run("off"); !ok {
