@@ -1,0 +1,11 @@
+url_path,views_total,views_unique
+/kdbhalala/avdslim,599,429
+/kdbhalala/avdslim/issues,29,20
+/kdbhalala/avdslim/pulls,9,8
+/kdbhalala/avdslim/releases,8,8
+/kdbhalala/avdslim/pull/8,8,6
+/kdbhalala/avdslim/tree/main/internal,7,2
+/kdbhalala/avdslim/tree/main/cmd/avdslim,6,6
+/kdbhalala/avdslim/tree/main/scripts,5,5
+/kdbhalala/avdslim/blob/main/cmd/avdslim/main.go,5,4
+/kdbhalala/avdslim/blob/main/internal/adb/client.go,5,3
